@@ -1,4 +1,6 @@
+import asyncio
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 import grpc
 import sum_pb2
@@ -17,28 +19,44 @@ def generate_requests(num_list):
         yield msg
 
 
-def request_num(stub, num):
-    responses = stub.SumServer(generate_requests([num]))
-    for r in responses:
-        print(r.sum)
+async def request_loop(stub, req_queue, res_queue):
+    while True:
+        num = await req_queue.get()
+        response = stub.SumServer(generate_requests([num]))
+        req_queue.task_done()
+        async for r in response:
+            await res_queue.put(r.sum)
 
 
-def run():
+async def response_loop(res_queue):
+    while True:
+        sum = await res_queue.get()
+        print(f"{sum} is return.")
+        res_queue.task_done()
+
+
+async def ainput(prompt: str = "") -> str:
+    with ThreadPoolExecutor(1, "AsyncInput") as executor:
+        return await asyncio.get_event_loop().run_in_executor(executor, input, prompt)
+
+
+async def run():
     print('init run...')
-    with grpc.insecure_channel('localhost:50051') as channel:
+    req_queue = asyncio.Queue()
+    res_queue = asyncio.Queue()
+    async with grpc.aio.insecure_channel('localhost:50051') as channel:
         stub = sum_pb2_grpc.SumServiceStub(channel)
-        print('add 1')
-        request_num(stub, 1)
-        print('add 2')
-        request_num(stub, 2)
-        print('add 3')
-        request_num(stub, 3)
-        print('add 4')
-        request_num(stub, 4)
-        print('add 5')
-        request_num(stub, 5)
+
+        asyncio.create_task(request_loop(stub, req_queue, res_queue))
+        asyncio.create_task(response_loop(res_queue))
+        while True:
+            number = await ainput('')
+            if number.isdigit():
+                await req_queue.put(int(number))
+            else:
+                print("input wrong.")
 
 
 if __name__ == '__main__':
     logging.basicConfig()
-    run()
+    asyncio.run(run())

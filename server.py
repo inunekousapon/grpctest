@@ -13,8 +13,10 @@ class SumServicer(sum_pb2_grpc.SumServiceServicer):
 
     def SumServer(self, request_iterator, context):
         for new_request in request_iterator:
+            print(f'{new_request.num} request')
             time.sleep(1)
             self.sum += new_request.num
+            print(f'reply sum {self.sum}')
             yield sum_pb2.ReplyMessage(sum=self.sum)
 
 
